@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """
-BER / bitstream comparator for two Cadence/ViVA waveform CSV exports. This script compares a reference waveform against a waveform export (csv) from Cadence.
+BER / bitstream comparator for two Cadence/ViVA waveform CSV exports.
+
+Purpose:
+    Compare a reference waveform against a delayed/non-ideal waveform from Cadence.
 
 Bit rule:
     voltage > threshold  -> 1
     voltage <= threshold -> 0
 
-Example, 10 Gb/s:
+Example 10 Gb/s:
     py compare_cadence_bitstreams.py PRBS31_ref.csv PRBS31_DFF_delay.csv --bit-rate 10e9 --threshold -1.65
 
-Example 80 Gb/s, -3.3 V to 0 V:
-    py compare_cadence_bitstreams.py ref.csv delayed.csv --bit-rate 80e9 --threshold -1.65 --min-overlap-fraction 0.8
+    py compare_cadence_bitstreams.py PRBS31_ref.csv PRBS31_DFF_delay.csv --bit-rate 10e9 --threshold -1.65 --min-overlap-fraction 0.8
+
+80 Gb/s, -3.3 V to 0 V:
+    py compare_cadence_bitstreams.py ref.csv delayed.csv --bit-rate 80e9 --threshold -2 --min-overlap-fraction 0.8
 """
 
 from __future__ import annotations
@@ -194,19 +199,6 @@ def sweep_shifts(
 
 
 def select_best_shift(results: pd.DataFrame) -> pd.Series:
-    """
-    Select best alignment.
-
-    This avoids the old bug where a 6-bit perfect overlap could win.
-
-    Priority:
-    1. valid overlap only
-    2. highest matching bits
-    3. lowest bit errors
-    4. lowest BER
-    5. highest compared bits
-    6. smallest absolute shift
-    """
     valid = results[(results["valid_overlap"]) & (~results["ber"].isna())].copy()
 
     if valid.empty:
@@ -253,8 +245,9 @@ def main() -> None:
     parser.add_argument("--max-shift-bits", type=int, default=None, help="Maximum absolute shift to sweep.")
     parser.add_argument("--min-overlap-bits", type=int, default=None, help="Minimum overlap required for a candidate shift.")
     parser.add_argument("--min-overlap-fraction", type=float, default=0.8, help="Minimum overlap as fraction of shorter bitstream. Default: 0.8.")
-    parser.add_argument("--output-metrics", default=None, help="Output metrics CSV file.")
-    parser.add_argument("--output-shift-sweep", default=None, help="Output CSV containing all shift sweep results.")
+    parser.add_argument("--output-metrics", default="ber_comparison_metrics.csv", help="Output metrics CSV file.")
+    parser.add_argument("--output-shift-sweep", default="ber_shift_sweep.csv", help="Output CSV containing all shift sweep results.")
+
     args = parser.parse_args()
 
     ui = 1.0 / args.bit_rate
@@ -309,11 +302,7 @@ def main() -> None:
     sweep_df["shift_seconds"] = sweep_df["shift_bits"] * ui
     sweep_df["shift_ps"] = sweep_df["shift_seconds"] * 1e12
 
-    if args.output_shift_sweep is None:
-        test_path = Path(args.test_csv)
-        sweep_path = test_path.with_name(test_path.stem + "_shift_sweep.csv")
-    else:
-        sweep_path = Path(args.output_shift_sweep)
+    sweep_path = Path(args.output_shift_sweep)
     sweep_df.to_csv(sweep_path, index=False)
 
     best = select_best_shift(sweep_df)
@@ -364,11 +353,7 @@ def main() -> None:
         "full_match_at_best_shift": bool(full_match),
     }
 
-    if args.output_metrics is None:
-        test_path = Path(args.test_csv)
-        metrics_path = test_path.with_name(test_path.stem + "_ber_metrics.csv")
-    else:
-        metrics_path = Path(args.output_metrics)
+    metrics_path = Path(args.output_metrics)
     pd.DataFrame([metrics]).to_csv(metrics_path, index=False)
 
     print("\n=== BER / bitstream comparison summary ===")
